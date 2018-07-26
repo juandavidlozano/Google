@@ -1,0 +1,237 @@
+---
+title: "Google Analytics with R"
+author: "Juan Lozano"
+date: "July 24, 2018"
+output: html_document
+---
+
+
+## Installing the Google packages in R
+
+we will load the packages
+
+```{r include=FALSE}
+library(dplyr)
+library(ggplot2)
+library(plotly)
+library(AnomalyDetection)
+##library("googleAuthR")
+##library("googleAnalyticsR")
+```
+
+
+
+```{r}
+##options(googleAuthR.client_id = "uxxxxxxx2fd4kesu6.apps.googleusercontent.com")
+##options(googleAuthR.client_secret = "3JhLa_GxxxxxCQYLe31c64")
+##options(googleAuthR.scopes.selected = "https://www.googleapis.com/auth/analytics")
+
+# authorize the connection with Google Analytics servers
+##ga_auth()
+```
+
+For this case google Analytics can export data to a CSV file.
+
+with this CSV files we will create a dataset that contains all the different CSV files
+
+## Tidy Dataset creation (Data Wrangling)
+
+first we create a variable with the directory where all the CSV files are
+
+```{r}
+directory <- "C:/Users/jlozano/Documents/Google_Exercise1"
+directory1 <- "C:/Users/jlozano/Documents/Google_Exercise"
+```
+
+we create a varible that holds all the CSV files in that working directory
+
+```{r}
+files_list <- list.files(directory, full.names=TRUE)
+files_list1 <- list.files(directory1, full.names=TRUE)
+files_list
+```
+
+we can see if we read the file we need to clean the top of the file, there is some data we dont need.
+
+```{r}
+temp <- read.csv("C:/Users/jlozano/Documents/Google_Exercise1/Analytics1.csv")
+head(temp, 10)
+```
+
+We need to clean the files, and join them based on the "Day.index" column
+
+```{r}
+tidy_data <- read.csv(files_list[1], skip = 6, header = T, stringsAsFactors=FALSE )
+for (i in 2:length(files_list)){
+  
+  tmp <- read.csv(files_list[i], skip = 6, header = T, stringsAsFactors=FALSE )
+  tidy_data <- merge(tidy_data,tmp)
+  
+}
+
+tidy_data1 <- read.csv(files_list1[1], skip = 6, header = T, stringsAsFactors=FALSE )
+for (i in 2:length(files_list1)){
+  
+  tmp <- read.csv(files_list1[i], skip = 6, header = T, stringsAsFactors=FALSE )
+  tidy_data1 <- merge(tidy_data1,tmp)
+  
+}
+```
+
+lets see our final product
+
+```{r}
+head(tidy_data)
+```
+
+it seems the first row is the total addition for the columns, we need to eliminate that and shift the content up
+
+```{r}
+tidy_data <- tidy_data[-1,]
+tidy_data1 <- tidy_data1[-1,]
+```
+
+and we sort by the date column
+
+```{r}
+tidy_data <-tidy_data[order(as.Date(tidy_data$Day.Index, format="%m/%d/%Y")),]
+tidy_data1 <-tidy_data1[order(as.Date(tidy_data1$Day.Index, format="%m/%d/%Y")),]
+```
+
+and we merge the 2 data sets on date to get a complete denormalized set, firts we need to change the column from a string to date object
+
+```{r}
+tidy_data$Day.Index <- as.Date(tidy_data$Day.Index, format = "%m/%d/%Y")
+tidy_data1$Day.Index <- as.Date(tidy_data1$Day.Index, format = "%m/%d/%y")
+```
+
+now we can merge by the date object
+
+```{r}
+tidy_data_complete <- merge(tidy_data,tidy_data1)
+tidy_data_complete$Sessions <- gsub(",","",tidy_data_complete$Sessions)
+tidy_data_complete$Sessions <- as.numeric(tidy_data_complete$Sessions)
+tidy_data_complete$Goal.Completions <- as.numeric(tidy_data_complete$Goal.Completions)
+tidy_data_complete$Purchase.Completed..Goal.1.Completions. <- as.integer(as.character(tidy_data_complete$Purchase.Completed..Goal.1.Completions.))
+```
+
+We add a column called "day_of_the_week" to do some exploratory analysis
+
+```{r}
+tidy_data_week <- tidy_data_complete %>% mutate(day_of_the_week = strftime(tidy_data_complete$Day.Index,'%A'))
+```
+
+
+## Exploratory analysis
+
+Lets see the traffic of the website aggainst different days of the week.
+
+```{r}
+
+ggplot(tidy_data_week, aes(x = tidy_data_week$day_of_the_week, y = tidy_data_week$Sessions)) + geom_boxplot() +
+  labs(x = "Day of the week", y = "Sessions")
+```
+
+We can see that monday and tuesdays are our highest sessions day, we can focus our marketing efforts there, lets see if it matches the convertion rate
+
+```{r}
+ggplot(tidy_data_week, aes(x = tidy_data_week$day_of_the_week, y = tidy_data_week$Purchase.Completed..Goal.1.Completions.)) + geom_boxplot() +
+  labs(x = "Day of the week", y = "Purchases")
+```
+
+it shows, that it follows the same pattern.
+
+Lets see a heat map of what time and day is the highest convertion rate
+
+```{r}
+heatmap <- read.csv("convertion.data.csv", header = T)
+heatmap1 <-heatmap[!is.na(heatmap$Hour.Index),]
+heatmap1$Date <- as.Date(heatmap1$Date, "%m/%d/%Y")
+heatmap1 <- heatmap1 %>%
+  mutate(day = strftime(heatmap1$Date,'%A'))
+
+p <- ggplot(heatmap1, aes(x=day, y=Hour.Index, fill=Goal.Completions))  + scale_fill_gradient2(low = "red", mid = "white", high = "darkgreen")
+p + geom_tile()
+
+```
+
+We can see that the highest hours of the day are around 10 am and 1 pm on Thurday, Tuesday and Wednesday
+
+Now lets see how is our convertion rate given the users device (mobile,desktop, tablet)
+
+```{r}
+
+device_data <- read.csv("google_device.csv", header = T, stringsAsFactors=FALSE )
+
+
+
+ggplot(device_data, aes(x = factor(Device.Category), y = perc*100, fill = factor(Transaction_Status))) +
+  geom_bar(stat="identity", width = 0.7) +
+  labs(x = "Device", y = "percent", fill = "Purchase") +
+  theme_minimal(base_size = 14) + geom_text(aes(label=sprintf("%0.3f", round(perc, digits = 3))),position="stack",vjust=1)
+
+```
+
+We can see that desktop is still where most of the transaction come from
+
+## Machine Learning
+
+Using some data that I found on the web I can give an example of unsupervised machine learning, in this case I have an "user ID" and 3 attributes, we would like to predict 3 clusters for our customers based on these 3 attributes and create a CSS file to distribute for marketing purposes
+
+for this we will use k-means clustering
+
+```{r}
+
+user_data <- read.csv("sample-users.csv", header=T, row.names = 1)
+
+fit <- kmeans(user_data, 3)
+
+aggregate(user_data,by=list(fit$cluster),FUN=mean)
+
+clustered_data <- data.frame(user_data, fit$cluster)
+
+plot_ly(clustered_data, 
+        x = clustered_data$Atribute1, 
+        y = clustered_data$Atribute2, 
+        z = clustered_data$Atribute3, 
+        type = "scatter3d", 
+        mode = "markers", 
+        color=factor(clustered_data$fit.cluster)
+)
+```
+we can see our predictive model for our customers based on that each observation belongs to the cluster with the nearest mean
+
+
+now lets create a CSV file to distribute and lets preview and see its content
+
+
+```{r}
+write.csv(clustered_data, "clustered-data.csv", row.names=T)
+prediction_data <- read.csv("clustered-data.csv", header=T)
+head (prediction_data)
+```
+
+We could use this for marketing purposes, for example you could try to cluster your customers in "Bargain hunters" or "Last minute deal buyers" or "hight value VIP customers" and vased on their attibutes and based on history data use machine learning to predict who from those clusters will probably make a transaction and generate marketing campaings tailored for those users in those clusters.
+
+## Other Analysis
+
+* Anomaly Detection
+
+R can use the anomaly detection packages in few lines of codes with the "AnomalyDetection" library
+
+```{r}
+
+
+data(raw_data)
+res = AnomalyDetectionTs(raw_data, max_anoms=0.02, direction='both', plot=TRUE) 
+res$plot
+
+```
+
+
+
+
+
+
+
+
