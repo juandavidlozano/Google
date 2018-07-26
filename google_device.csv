@@ -1,0 +1,7 @@
+Device Category,Transaction_Status,Sessions,perc
+mobile,Purchase,792,0.004914157
+mobile,No purchase,"160,375",0.995085843
+tablet,Purchase,113,0.00589678
+tablet,No purchase,"19,050",0.99410322
+desktop,Purchase,"13,986",0.033314357
+desktop,No purchase,"405,833",0.966685643
